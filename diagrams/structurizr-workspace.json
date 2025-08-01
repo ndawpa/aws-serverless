@@ -1,0 +1,115 @@
+{
+  "name": "Todo Application",
+  "description": "A serverless todo application built on AWS",
+  "version": "1.0.0",
+  "model": {
+    "people": [
+      {
+        "id": "user",
+        "name": "User",
+        "description": "A user of the todo application"
+      }
+    ],
+    "softwareSystems": [
+      {
+        "id": "todoApplication",
+        "name": "Todo Application",
+        "description": "A serverless todo application built on AWS",
+        "containers": [
+          {
+            "id": "webapp",
+            "name": "Todo Web Application",
+            "description": "Provides todo management functionality via web interface",
+            "technology": "React, TypeScript",
+            "tags": "frontend"
+          },
+          {
+            "id": "api",
+            "name": "Todo API",
+            "description": "Provides todo management functionality via REST API",
+            "technology": "API Gateway, Lambda",
+            "tags": "api"
+          },
+          {
+            "id": "database",
+            "name": "Todo Database",
+            "description": "Stores todo data",
+            "technology": "DynamoDB",
+            "tags": "database"
+          },
+          {
+            "id": "email",
+            "name": "Email Service",
+            "description": "Sends email notifications",
+            "technology": "SES",
+            "tags": "email"
+          }
+        ]
+      },
+      {
+        "id": "github",
+        "name": "GitHub",
+        "description": "Source code repository",
+        "tags": "external"
+      },
+      {
+        "id": "cloudfront",
+        "name": "CloudFront CDN",
+        "description": "Content delivery network",
+        "tags": "external"
+      }
+    ],
+    "relationships": [
+      {
+        "sourceId": "user",
+        "targetId": "webapp",
+        "description": "Uses",
+        "technology": "HTTPS"
+      },
+      {
+        "sourceId": "webapp",
+        "targetId": "api",
+        "description": "Makes API calls to",
+        "technology": "JSON/HTTPS"
+      },
+      {
+        "sourceId": "api",
+        "targetId": "database",
+        "description": "Reads from and writes to",
+        "technology": "DynamoDB API"
+      },
+      {
+        "sourceId": "api",
+        "targetId": "email",
+        "description": "Sends notifications via",
+        "technology": "SES API"
+      },
+      {
+        "sourceId": "github",
+        "targetId": "webapp",
+        "description": "Deploys to",
+        "technology": "CI/CD Pipeline"
+      },
+      {
+        "sourceId": "cloudfront",
+        "targetId": "webapp",
+        "description": "Serves static content from",
+        "technology": "S3"
+      }
+    ]
+  },
+  "views": {
+    "systemContext": {
+      "todoApplication": {
+        "title": "System Context diagram for Todo Application",
+        "description": "Shows the Todo Application and its dependencies"
+      }
+    },
+    "containers": {
+      "todoApplication": {
+        "title": "Containers diagram for Todo Application",
+        "description": "Shows the containers within the Todo Application"
+      }
+    }
+  }
+} 

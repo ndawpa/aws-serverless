@@ -1,0 +1,59 @@
+@startuml AWS Serverless Todo Application
+
+!define RECTANGLE class
+
+package "Frontend Layer" {
+    [CloudFront Distribution] as CF
+    [S3 Website Bucket] as S3
+    [Route 53 DNS] as R53
+    [SSL Certificate] as ACM
+}
+
+package "API Layer" {
+    [API Gateway] as API
+}
+
+package "Compute Layer" {
+    [Create Todo Lambda] as L1
+    [Get Todos Lambda] as L2
+    [Update Todo Lambda] as L3
+    [Delete Todo Lambda] as L4
+}
+
+package "Data Layer" {
+    database "DynamoDB Table" as DDB
+    [SES Email] as SES
+}
+
+package "CI/CD Pipeline" {
+    [GitHub Repository] as GH
+    [CodePipeline] as CP
+    [CodeBuild] as CB
+    [Pipeline Artifacts S3] as PAS3
+}
+
+' Frontend connections
+R53 --> CF
+ACM --> CF
+CF --> S3
+
+' API connections
+API --> L1
+API --> L2
+API --> L3
+API --> L4
+
+' Lambda to Data connections
+L1 --> DDB
+L2 --> DDB
+L3 --> DDB
+L4 --> DDB
+L1 --> SES
+
+' CI/CD connections
+GH --> CP
+CP --> CB
+CB --> S3
+CP --> PAS3
+
+@enduml 

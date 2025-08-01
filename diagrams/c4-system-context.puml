@@ -1,0 +1,28 @@
+@startuml C4_System_Context
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+title System Context diagram for Todo Application
+
+Person(user, "User", "A user of the todo application")
+
+System_Boundary(c1, "Todo Application") {
+    Container(webapp, "Todo Web Application", "React, TypeScript", "Provides todo management functionality via web interface")
+    Container(api, "Todo API", "API Gateway, Lambda", "Provides todo management functionality via REST API")
+    Container(db, "Todo Database", "DynamoDB", "Stores todo data")
+    Container(email, "Email Service", "SES", "Sends email notifications")
+}
+
+System_Ext(github, "GitHub", "Source code repository")
+System_Ext(cdn, "CloudFront CDN", "Content delivery network")
+
+Rel(user, webapp, "Uses", "HTTPS")
+Rel(webapp, api, "Makes API calls to", "JSON/HTTPS")
+Rel(api, db, "Reads from and writes to", "DynamoDB API")
+Rel(api, email, "Sends notifications via", "SES API")
+Rel(github, webapp, "Deploys to", "CI/CD Pipeline")
+Rel(cdn, webapp, "Serves static content from", "S3")
+
+@enduml 
