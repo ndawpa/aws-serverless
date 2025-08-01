@@ -4,6 +4,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as ses from 'aws-cdk-lib/aws-ses';
 import * as path from 'path';
 
 export class TodoInfrastructureStack extends cdk.Stack {
@@ -16,6 +17,11 @@ export class TodoInfrastructureStack extends cdk.Stack {
       partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY, // For development - change to RETAIN for production
+    });
+
+    // SES Email Identity
+    const emailIdentity = new ses.EmailIdentity(this, 'TodoEmailIdentity', {
+      identity: ses.Identity.email('ndawpa6989@gmail.com'),
     });
 
     // Common Lambda execution role
@@ -47,6 +53,16 @@ export class TodoInfrastructureStack extends cdk.Stack {
       ]
     }));
 
+    // Add SES permissions for sending emails
+    lambdaExecutionRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'ses:SendEmail',
+        'ses:SendRawEmail'
+      ],
+      resources: ['*']
+    }));
+
         // Lambda function for creating todos
     const createTodoFunction = new lambda.Function(this, 'CreateTodoFunction', {
       functionName: 'create-todo',
@@ -55,6 +71,7 @@ export class TodoInfrastructureStack extends cdk.Stack {
       code: lambda.Code.fromInline(`
         const AWS = require('aws-sdk');
         const dynamodb = new AWS.DynamoDB.DocumentClient();
+        const ses = new AWS.SES();
         
         exports.handler = async (event) => {
             console.log('Create todo function called');
@@ -92,10 +109,60 @@ export class TodoInfrastructureStack extends cdk.Stack {
 
                 console.log('Todo saved to DynamoDB successfully');
 
+                // Send email notification
+                try {
+                    const emailParams = {
+                        Source: 'ndawpa6989@gmail.com', // Replace with your verified email
+                        Destination: {
+                            ToAddresses: ['ndawpa6989@gmail.com'] // Replace with your email
+                        },
+                        Message: {
+                            Subject: {
+                                Data: 'New Todo Created!',
+                                Charset: 'UTF-8'
+                            },
+                            Body: {
+                                Text: {
+                                    Data: \`A new todo has been created!
+                                    
+Title: \${todo.title}
+Description: \${todo.description}
+User ID: \${todo.userId}
+Created: \${todo.createdAt}
+Todo ID: \${todo.id}
+
+You can view all your todos at your todo application.\`,
+                                    Charset: 'UTF-8'
+                                },
+                                Html: {
+                                    Data: \`<h2>New Todo Created!</h2>
+<p><strong>Title:</strong> \${todo.title}</p>
+<p><strong>Description:</strong> \${todo.description}</p>
+<p><strong>User ID:</strong> \${todo.userId}</p>
+<p><strong>Created:</strong> \${todo.createdAt}</p>
+<p><strong>Todo ID:</strong> \${todo.id}</p>
+<br>
+<p>You can view all your todos at your todo application.</p>\`,
+                                    Charset: 'UTF-8'
+                                }
+                            }
+                        }
+                    };
+
+                    await ses.sendEmail(emailParams).promise();
+                    console.log('Email notification sent successfully');
+                } catch (emailError) {
+                    console.error('Error sending email:', emailError);
+                    // Don't fail the todo creation if email fails
+                }
+
                 return {
                     statusCode: 201,
                     headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-                    body: JSON.stringify(todo)
+                    body: JSON.stringify({
+                        ...todo,
+                        emailSent: true
+                    })
                 };
             } catch (error) {
                 console.error('Error creating todo:', error);
@@ -386,6 +453,13 @@ export class TodoInfrastructureStack extends cdk.Stack {
       value: api.url,
       description: 'API Gateway URL',
       exportName: 'TodoApiUrl',
+    });
+
+    // Output the SES Email Identity
+    new cdk.CfnOutput(this, 'EmailIdentity', {
+      value: emailIdentity.emailIdentityName,
+      description: 'SES Email Identity for notifications',
+      exportName: 'TodoEmailIdentity',
     });
   }
 }
