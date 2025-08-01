@@ -9,6 +9,9 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
+import * as codepipeline from 'aws-cdk-lib/aws-codepipeline';
+import * as codepipeline_actions from 'aws-cdk-lib/aws-codepipeline-actions';
+import * as codebuild from 'aws-cdk-lib/aws-codebuild';
 import * as path from 'path';
 
 export class TodoInfrastructureStack extends cdk.Stack {
@@ -511,12 +514,178 @@ You can view all your todos at your todo application.\`,
       defaultRootObject: 'index.html',
     });
 
-    // Deploy frontend files to S3
-    new s3deploy.BucketDeployment(this, 'DeployWebsite', {
-      sources: [s3deploy.Source.asset('../frontend/dist')],
-      destinationBucket: websiteBucket,
-      distribution,
-      distributionPaths: ['/*'],
+    // CI/CD Pipeline Infrastructure
+    // =============================
+
+    // S3 Bucket for pipeline artifacts
+    const pipelineArtifactBucket = new s3.Bucket(this, 'PipelineArtifactBucket', {
+      bucketName: `todo-pipeline-artifacts-${this.account}-${this.region}`,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      versioned: true,
+    });
+
+    // CodeBuild Project for building the frontend
+    const buildProject = new codebuild.PipelineProject(this, 'FrontendBuildProject', {
+      projectName: 'todo-frontend-build',
+      environment: {
+        buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
+        privileged: false,
+      },
+      environmentVariables: {
+        NODE_VERSION: {
+          value: '18',
+          type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+        },
+      },
+      buildSpec: codebuild.BuildSpec.fromObject({
+        version: '0.2',
+        phases: {
+          install: {
+            'runtime-versions': {
+              nodejs: '18',
+            },
+            commands: [
+              'echo "Installing dependencies..."',
+              'npm ci',
+            ],
+          },
+          pre_build: {
+            commands: [
+              'echo "Pre-build phase..."',
+              'npm run build',
+            ],
+          },
+          build: {
+            commands: [
+              'echo "Build phase..."',
+              'ls -la dist/',
+            ],
+          },
+          post_build: {
+            commands: [
+              'echo "Post-build phase..."',
+              'aws s3 sync dist/ s3://${WEBSITE_BUCKET} --delete',
+              'aws cloudfront create-invalidation --distribution-id ${CLOUDFRONT_DISTRIBUTION_ID} --paths "/*"',
+            ],
+          },
+        },
+        artifacts: {
+          files: ['dist/**/*'],
+          'base-directory': 'dist',
+        },
+        cache: {
+          paths: ['node_modules/**/*'],
+        },
+      }),
+    });
+
+    // Grant CodeBuild permissions to access S3 and CloudFront
+    websiteBucket.grantReadWrite(buildProject);
+    buildProject.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'cloudfront:CreateInvalidation',
+        'cloudfront:GetInvalidation',
+        'cloudfront:ListInvalidations',
+      ],
+      resources: ['*'],
+    }));
+
+    // Pipeline
+    const pipeline = new codepipeline.Pipeline(this, 'FrontendPipeline', {
+      pipelineName: 'todo-frontend-pipeline',
+      artifactBucket: pipelineArtifactBucket,
+      crossAccountKeys: false,
+    });
+
+    // Source stage - GitHub repository
+    const sourceOutput = new codepipeline.Artifact();
+    
+    // GitHub Source Action (recommended over CodeCommit)
+    const sourceAction = new codepipeline_actions.GitHubSourceAction({
+      actionName: 'Source',
+      owner: 'ndawpa', // Replace with your GitHub username
+      repo: 'todo-frontend', // Replace with your repository name
+      branch: 'main',
+      oauthToken: cdk.SecretValue.secretsManager('github-token', {
+        jsonField: 'token',
+      }),
+      output: sourceOutput,
+    });
+
+    pipeline.addStage({
+      stageName: 'Source',
+      actions: [sourceAction],
+    });
+
+    // Build stage
+    const buildOutput = new codepipeline.Artifact();
+    const buildAction = new codepipeline_actions.CodeBuildAction({
+      actionName: 'Build',
+      project: buildProject,
+      input: sourceOutput,
+      outputs: [buildOutput],
+      environmentVariables: {
+        WEBSITE_BUCKET: {
+          value: websiteBucket.bucketName,
+          type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+        },
+        CLOUDFRONT_DISTRIBUTION_ID: {
+          value: distribution.distributionId,
+          type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+        },
+      },
+    });
+
+    pipeline.addStage({
+      stageName: 'Build',
+      actions: [buildAction],
+    });
+
+    // Deploy stage - Deploy to S3 and invalidate CloudFront
+    const deployAction = new codepipeline_actions.S3DeployAction({
+      actionName: 'Deploy',
+      input: buildOutput,
+      bucket: websiteBucket,
+      extract: true,
+    });
+
+    pipeline.addStage({
+      stageName: 'Deploy',
+      actions: [deployAction],
+    });
+
+    // Alternative: GitHub Source Action (if you prefer GitHub over CodeCommit)
+    // Uncomment the following section and comment out the CodeCommit section above
+    /*
+    const sourceAction = new codepipeline_actions.GitHubSourceAction({
+      actionName: 'Source',
+      owner: 'your-github-username',
+      repo: 'your-frontend-repo',
+      branch: 'main',
+      oauthToken: cdk.SecretValue.secretsManager('github-token'),
+      output: sourceOutput,
+    });
+    */
+
+    // Outputs for CI/CD
+    new cdk.CfnOutput(this, 'PipelineName', {
+      value: pipeline.pipelineName,
+      description: 'CodePipeline Name',
+      exportName: 'TodoPipelineName',
+    });
+
+    new cdk.CfnOutput(this, 'BuildProjectName', {
+      value: buildProject.projectName,
+      description: 'CodeBuild Project Name',
+      exportName: 'TodoBuildProjectName',
+    });
+
+    new cdk.CfnOutput(this, 'RepositoryName', {
+      value: 'todo-frontend',
+      description: 'GitHub Repository Name',
+      exportName: 'TodoRepositoryName',
     });
 
     // Output the website URL
