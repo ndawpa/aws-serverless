@@ -2,9 +2,13 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as iam from 'aws-cdk-lib/aws-iam';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ses from 'aws-cdk-lib/aws-ses';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as path from 'path';
 
 export class TodoInfrastructureStack extends cdk.Stack {
@@ -460,6 +464,72 @@ You can view all your todos at your todo application.\`,
       value: emailIdentity.emailIdentityName,
       description: 'SES Email Identity for notifications',
       exportName: 'TodoEmailIdentity',
+    });
+
+    // S3 Bucket for hosting the frontend
+    const websiteBucket = new s3.Bucket(this, 'TodoWebsiteBucket', {
+      bucketName: `todo-app-${this.account}-${this.region}`,
+      websiteIndexDocument: 'index.html',
+      websiteErrorDocument: 'index.html', // For SPA routing
+      publicReadAccess: false, // We'll use CloudFront for access
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      removalPolicy: cdk.RemovalPolicy.DESTROY, // For development
+      autoDeleteObjects: true, // For development
+    });
+
+    // CloudFront Origin Access Identity (OAI) - Required for private S3 access
+    const originAccessIdentity = new cloudfront.OriginAccessIdentity(this, 'OriginAccessIdentity', {
+      comment: 'OAI for Todo App S3 bucket',
+    });
+
+    // Grant CloudFront read access to S3 bucket
+    websiteBucket.grantRead(originAccessIdentity);
+
+    // Add bucket policy for CloudFront access
+    websiteBucket.addToResourcePolicy(new iam.PolicyStatement({
+      actions: ['s3:GetObject'],
+      resources: [websiteBucket.arnForObjects('*')],
+      principals: [new iam.CanonicalUserPrincipal(originAccessIdentity.cloudFrontOriginAccessIdentityS3CanonicalUserId)],
+    }));
+
+    // CloudFront Distribution
+    const distribution = new cloudfront.Distribution(this, 'TodoDistribution', {
+      defaultBehavior: {
+        origin: new origins.S3Origin(websiteBucket, {
+          originAccessIdentity,
+        }),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+      },
+      errorResponses: [
+        {
+          httpStatus: 404,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html',
+        },
+      ],
+      defaultRootObject: 'index.html',
+    });
+
+    // Deploy frontend files to S3
+    new s3deploy.BucketDeployment(this, 'DeployWebsite', {
+      sources: [s3deploy.Source.asset('../frontend/dist')],
+      destinationBucket: websiteBucket,
+      distribution,
+      distributionPaths: ['/*'],
+    });
+
+    // Output the website URL
+    new cdk.CfnOutput(this, 'WebsiteURL', {
+      value: distribution.distributionDomainName,
+      description: 'Frontend Website URL',
+      exportName: 'TodoWebsiteURL',
+    });
+
+    new cdk.CfnOutput(this, 'S3BucketName', {
+      value: websiteBucket.bucketName,
+      description: 'S3 Bucket Name for frontend files',
+      exportName: 'TodoS3BucketName',
     });
   }
 }
