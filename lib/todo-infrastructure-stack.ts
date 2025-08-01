@@ -474,8 +474,8 @@ You can view all your todos at your todo application.\`,
       bucketName: `todo-app-440748827272-us-east-1`,
       websiteIndexDocument: 'index.html',
       websiteErrorDocument: 'index.html', // For SPA routing
-      publicReadAccess: false, // We'll use CloudFront for access
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      publicReadAccess: true, // Allow public read access for website hosting
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ACLS, // Allow public read but block ACLs
       removalPolicy: cdk.RemovalPolicy.DESTROY, // For development
       autoDeleteObjects: true, // For development
       cors: [
@@ -487,6 +487,14 @@ You can view all your todos at your todo application.\`,
         },
       ],
     });
+
+    // Add public bucket policy for website hosting
+    websiteBucket.addToResourcePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:GetObject'],
+      resources: [websiteBucket.arnForObjects('*')],
+      principals: [new iam.AnyPrincipal()],
+    }));
 
     // CloudFront Origin Access Identity (OAI) - Required for private S3 access
     const originAccessIdentity = new cloudfront.OriginAccessIdentity(this, 'OriginAccessIdentity', {
