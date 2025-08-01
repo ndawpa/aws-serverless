@@ -13,6 +13,10 @@ import * as codepipeline from 'aws-cdk-lib/aws-codepipeline';
 import * as codepipeline_actions from 'aws-cdk-lib/aws-codepipeline-actions';
 import * as codebuild from 'aws-cdk-lib/aws-codebuild';
 import * as path from 'path';
+import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as targets from 'aws-cdk-lib/aws-route53-targets';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import { domainConfig } from '../domain-config';
 
 export class TodoInfrastructureStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -504,6 +508,32 @@ You can view all your todos at your todo application.\`,
     // Grant CloudFront read access to S3 bucket
     websiteBucket.grantRead(originAccessIdentity);
 
+    // Domain Configuration
+    // ===================
+    
+    let hostedZone: route53.IHostedZone | undefined;
+    let certificate: acm.ICertificate | undefined;
+    let customDomainName: string | undefined;
+    
+    if (domainConfig.enableCustomDomain) {
+      // Use domain configuration from config file
+      const domainName = domainConfig.domainName;
+      const subdomain = domainConfig.subdomain;
+      customDomainName = subdomain ? `${subdomain}.${domainName}` : domainName;
+      
+      // Create Hosted Zone (instead of looking it up)
+      hostedZone = new route53.HostedZone(this, 'TodoHostedZone', {
+        zoneName: domainName,
+        comment: `Hosted zone for ${domainName}`,
+      });
+      
+      // SSL Certificate
+      certificate = new acm.Certificate(this, 'TodoCertificate', {
+        domainName: customDomainName,
+        validation: acm.CertificateValidation.fromDns(hostedZone),
+      });
+    }
+
     // CloudFront Distribution
     const distribution = new cloudfront.Distribution(this, 'TodoDistribution', {
       defaultBehavior: {
@@ -521,7 +551,23 @@ You can view all your todos at your todo application.\`,
         },
       ],
       defaultRootObject: 'index.html',
+      // Custom domain configuration (only if enabled)
+      ...(customDomainName && certificate && {
+        domainNames: [customDomainName],
+        certificate: certificate,
+      }),
     });
+
+    // Route 53 DNS Record (only if custom domain is enabled)
+    if (hostedZone && customDomainName) {
+      new route53.ARecord(this, 'TodoAliasRecord', {
+        zone: hostedZone,
+        recordName: domainConfig.subdomain || '@',
+        target: route53.RecordTarget.fromAlias(
+          new targets.CloudFrontTarget(distribution)
+        ),
+      });
+    }
 
 
 
@@ -684,5 +730,32 @@ You can view all your todos at your todo application.\`,
       description: 'CloudFront Distribution ID',
       exportName: 'TodoCloudFrontDistributionId',
     });
+
+    // Domain outputs (only if custom domain is enabled)
+    if (customDomainName && certificate && hostedZone) {
+      new cdk.CfnOutput(this, 'CustomDomain', {
+        value: customDomainName,
+        description: 'Custom Domain URL',
+        exportName: 'TodoCustomDomain',
+      });
+
+      new cdk.CfnOutput(this, 'CertificateArn', {
+        value: certificate.certificateArn,
+        description: 'SSL Certificate ARN',
+        exportName: 'TodoCertificateArn',
+      });
+
+      new cdk.CfnOutput(this, 'HostedZoneId', {
+        value: hostedZone.hostedZoneId,
+        description: 'Route 53 Hosted Zone ID',
+        exportName: 'TodoHostedZoneId',
+      });
+
+      new cdk.CfnOutput(this, 'NameServers', {
+        value: cdk.Fn.join(', ', hostedZone.hostedZoneNameServers || []),
+        description: 'Nameservers to configure in your domain registrar',
+        exportName: 'TodoNameServers',
+      });
+    }
   }
 }
