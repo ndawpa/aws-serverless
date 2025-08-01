@@ -471,13 +471,21 @@ You can view all your todos at your todo application.\`,
 
     // S3 Bucket for hosting the frontend
     const websiteBucket = new s3.Bucket(this, 'TodoWebsiteBucket', {
-      bucketName: `todo-app-${this.account}-${this.region}`,
+      bucketName: `todo-app-440748827272-us-east-1`,
       websiteIndexDocument: 'index.html',
       websiteErrorDocument: 'index.html', // For SPA routing
       publicReadAccess: false, // We'll use CloudFront for access
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.DESTROY, // For development
       autoDeleteObjects: true, // For development
+      cors: [
+        {
+          allowedHeaders: ['*'],
+          allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+          allowedOrigins: ['*'],
+          maxAge: 3000,
+        },
+      ],
     });
 
     // CloudFront Origin Access Identity (OAI) - Required for private S3 access
@@ -487,13 +495,6 @@ You can view all your todos at your todo application.\`,
 
     // Grant CloudFront read access to S3 bucket
     websiteBucket.grantRead(originAccessIdentity);
-
-    // Add bucket policy for CloudFront access
-    websiteBucket.addToResourcePolicy(new iam.PolicyStatement({
-      actions: ['s3:GetObject'],
-      resources: [websiteBucket.arnForObjects('*')],
-      principals: [new iam.CanonicalUserPrincipal(originAccessIdentity.cloudFrontOriginAccessIdentityS3CanonicalUserId)],
-    }));
 
     // CloudFront Distribution
     const distribution = new cloudfront.Distribution(this, 'TodoDistribution', {
@@ -513,6 +514,8 @@ You can view all your todos at your todo application.\`,
       ],
       defaultRootObject: 'index.html',
     });
+
+
 
     // CI/CD Pipeline Infrastructure
     // =============================
@@ -660,6 +663,18 @@ You can view all your todos at your todo application.\`,
       value: websiteBucket.bucketName,
       description: 'S3 Bucket Name for frontend files',
       exportName: 'TodoS3BucketName',
+    });
+
+    new cdk.CfnOutput(this, 'S3WebsiteURL', {
+      value: websiteBucket.bucketWebsiteDomainName,
+      description: 'S3 Website URL (for debugging)',
+      exportName: 'TodoS3WebsiteURL',
+    });
+
+    new cdk.CfnOutput(this, 'CloudFrontDistributionId', {
+      value: distribution.distributionId,
+      description: 'CloudFront Distribution ID',
+      exportName: 'TodoCloudFrontDistributionId',
     });
   }
 }
