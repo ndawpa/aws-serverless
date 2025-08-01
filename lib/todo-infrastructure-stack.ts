@@ -538,46 +538,7 @@ You can view all your todos at your todo application.\`,
           type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
         },
       },
-      buildSpec: codebuild.BuildSpec.fromObject({
-        version: '0.2',
-        phases: {
-          install: {
-            'runtime-versions': {
-              nodejs: '18',
-            },
-            commands: [
-              'echo "Installing dependencies..."',
-              'npm ci',
-            ],
-          },
-          pre_build: {
-            commands: [
-              'echo "Pre-build phase..."',
-              'npm run build',
-            ],
-          },
-          build: {
-            commands: [
-              'echo "Build phase..."',
-              'ls -la dist/',
-            ],
-          },
-          post_build: {
-            commands: [
-              'echo "Post-build phase..."',
-              'aws s3 sync dist/ s3://${WEBSITE_BUCKET} --delete',
-              'aws cloudfront create-invalidation --distribution-id ${CLOUDFRONT_DISTRIBUTION_ID} --paths "/*"',
-            ],
-          },
-        },
-        artifacts: {
-          files: ['dist/**/*'],
-          'base-directory': 'dist',
-        },
-        cache: {
-          paths: ['node_modules/**/*'],
-        },
-      }),
+      buildSpec: codebuild.BuildSpec.fromSourceFilename('buildspec.yml'),
     });
 
     // Grant CodeBuild permissions to access S3 and CloudFront
